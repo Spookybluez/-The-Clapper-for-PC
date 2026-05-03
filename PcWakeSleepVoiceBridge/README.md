@@ -74,18 +74,30 @@ Dry-run is strongly recommended first. Without `--dry-run`, `POST /sleep` will p
 Open Serial Monitor at `115200` baud and send one of:
 
 ```text
+STATUS
 WAKE_TEST
 SLEEP_TEST
 WAKE_IN_30
 WAKE_SPAM_120
 ```
 
+- `STATUS` prints Wi-Fi, mic, threshold, and action counters.
 - `WAKE_TEST` sends one Wake-on-LAN packet.
 - `SLEEP_TEST` calls the PC listener `/sleep` endpoint.
 - `WAKE_IN_30` sends Wake-on-LAN after 30 seconds.
 - `WAKE_SPAM_120` sends Wake-on-LAN repeatedly for 2 minutes, useful for sleep/wake testing.
 
 Set `VERBOSE_AUDIO_LOGS = true` in the sketch if you need raw mic tuning output again.
+
+## ESP32 LAN Health Check
+
+When the ESP32 is online, it exposes a read-only status endpoint:
+
+```text
+http://192.168.1.184:8080/health
+```
+
+The response includes Wi-Fi RSSI, uptime, mic readings, threshold, desired state, wake packet count, sleep request count, and the last sleep HTTP status. This endpoint does not trigger wake, sleep, or shutdown.
 
 ## Voice Recognition
 

@@ -4,12 +4,14 @@ Generated STL files:
 
 - `esp32_dongle_case_bottom.stl`
 - `esp32_dongle_case_lid.stl`
+- `esp32_dongle_case_lid_deep.stl`
 
 Approximate outside dimensions:
 
 - 78 mm long
 - 42 mm wide
 - 18 mm assembled height
+- 28 mm assembled height with the deep lid
 
 Design assumptions:
 
@@ -18,6 +20,7 @@ Design assumptions:
 - I2S mic sits near the opposite/top end behind five grille slots
 - Bottom tray has rails and standoff pads for foam tape, hot glue, or small printed retention tweaks
 - Lid uses a shallow internal lip rather than screws
+- Deep lid adds 10 mm of extra wire space while using the same bottom tray
 
 Print notes:
 

@@ -15,14 +15,17 @@
 #include <WiFi.h>
 #include <WiFiUdp.h>
 #include <HTTPClient.h>
+#include <WebServer.h>
 #include <driver/i2s.h>
 
 #include "arduino_secrets.h"
 
 const byte PC_MAC[6] = {0x34, 0x5A, 0x60, 0x10, 0x9F, 0x36};
 const char* PC_SLEEP_URL = "http://192.168.1.191:8787/sleep";
+const int STATUS_SERVER_PORT = 8080;
 
 const i2s_port_t I2S_PORT = I2S_NUM_0;
+WebServer statusServer(STATUS_SERVER_PORT);
 
 const int I2S_SCK_PIN = 26;
 const int I2S_WS_PIN = 25;
@@ -53,8 +56,16 @@ unsigned long lastPrintAt = 0;
 unsigned long scheduledWakeAt = 0;
 unsigned long wakeSpamUntil = 0;
 unsigned long nextWakeSpamAt = 0;
+unsigned long wakePacketsSent = 0;
+unsigned long sleepRequestsSent = 0;
+int lastAverage = 0;
+int lastPeak = 0;
+int lastSleepHttpStatus = 0;
+String lastAction = "boot";
 
 void connectWiFi();
+void setupStatusServer();
+void handleStatusServer();
 void setupI2SMic();
 AudioStats readI2SStats();
 void calibrateNoiseFloor();
@@ -73,13 +84,15 @@ void setup() {
   Serial.println();
   Serial.println("ESP32 PC wake/sleep bridge starting.");
   connectWiFi();
+  setupStatusServer();
   setupI2SMic();
   calibrateNoiseFloor();
 
-  Serial.println("READY: clap toggles WAKE/SLEEP. Commands: WAKE_TEST, SLEEP_TEST, WAKE_IN_30, WAKE_SPAM_120.");
+  Serial.println("READY: clap toggles WAKE/SLEEP. Commands: STATUS, WAKE_TEST, SLEEP_TEST, WAKE_IN_30, WAKE_SPAM_120.");
 }
 
 void loop() {
+  handleStatusServer();
   handleSerialCommand();
 
   if (scheduledWakeAt != 0 && (long)(millis() - scheduledWakeAt) >= 0) {
@@ -100,6 +113,8 @@ void loop() {
   }
 
   AudioStats audio = readI2SStats();
+  lastAverage = audio.average;
+  lastPeak = audio.peak;
   unsigned long now = millis();
   bool clapDetected = audio.average >= clapThreshold;
 
@@ -109,12 +124,14 @@ void loop() {
     digitalWrite(STATUS_LED_PIN, pcWantedAwake ? HIGH : LOW);
 
     if (pcWantedAwake) {
+      lastAction = "wake";
       Serial.print("VOICE_TRIGGER -> WAKE avg=");
       Serial.print(audio.average);
       Serial.print(" peak=");
       Serial.println(audio.peak);
       sendWakeOnLan();
     } else {
+      lastAction = "sleep";
       Serial.print("VOICE_TRIGGER -> SLEEP avg=");
       Serial.print(audio.average);
       Serial.print(" peak=");
@@ -140,6 +157,7 @@ void handleSerialCommand() {
 
   if (command == "WAKE_TEST") {
     Serial.println("Serial command -> WAKE_TEST");
+    lastAction = "serial_wake_test";
     sendWakeOnLan();
   } else if (command.startsWith("WAKE_IN_")) {
     int seconds = command.substring(8).toInt();
@@ -160,10 +178,74 @@ void handleSerialCommand() {
     Serial.println(seconds);
   } else if (command == "SLEEP_TEST") {
     Serial.println("Serial command -> SLEEP_TEST");
+    lastAction = "serial_sleep_test";
     sendSleepRequest();
+  } else if (command == "STATUS") {
+    Serial.print("STATUS ip=");
+    Serial.print(WiFi.localIP());
+    Serial.print(" rssi=");
+    Serial.print(WiFi.RSSI());
+    Serial.print(" avg=");
+    Serial.print(lastAverage);
+    Serial.print(" peak=");
+    Serial.print(lastPeak);
+    Serial.print(" threshold=");
+    Serial.print(clapThreshold);
+    Serial.print(" desired=");
+    Serial.print(pcWantedAwake ? "AWAKE" : "SLEEP");
+    Serial.print(" wakePackets=");
+    Serial.print(wakePacketsSent);
+    Serial.print(" sleepRequests=");
+    Serial.print(sleepRequestsSent);
+    Serial.print(" lastSleepHttp=");
+    Serial.print(lastSleepHttpStatus);
+    Serial.print(" lastAction=");
+    Serial.println(lastAction);
   } else if (command.length() > 0) {
     Serial.print("Unknown serial command: ");
     Serial.println(command);
+  }
+}
+
+void setupStatusServer() {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("Status server skipped: WiFi is not connected.");
+    return;
+  }
+
+  statusServer.on("/health", HTTP_GET, []() {
+    String body = "{";
+    body += "\"ok\":true";
+    body += ",\"ip\":\"" + WiFi.localIP().toString() + "\"";
+    body += ",\"rssi\":" + String(WiFi.RSSI());
+    body += ",\"uptimeMs\":" + String(millis());
+    body += ",\"noiseFloor\":" + String(noiseFloor);
+    body += ",\"threshold\":" + String(clapThreshold);
+    body += ",\"lastAverage\":" + String(lastAverage);
+    body += ",\"lastPeak\":" + String(lastPeak);
+    body += ",\"desired\":\"" + String(pcWantedAwake ? "AWAKE" : "SLEEP") + "\"";
+    body += ",\"wakePacketsSent\":" + String(wakePacketsSent);
+    body += ",\"sleepRequestsSent\":" + String(sleepRequestsSent);
+    body += ",\"lastSleepHttpStatus\":" + String(lastSleepHttpStatus);
+    body += ",\"lastAction\":\"" + lastAction + "\"";
+    body += "}";
+    statusServer.send(200, "application/json", body);
+  });
+
+  statusServer.onNotFound([]() {
+    statusServer.send(404, "application/json", "{\"ok\":false,\"error\":\"not found\"}");
+  });
+
+  statusServer.begin();
+  Serial.print("ESP status server listening on http://");
+  Serial.print(WiFi.localIP());
+  Serial.print(":");
+  Serial.println(STATUS_SERVER_PORT);
+}
+
+void handleStatusServer() {
+  if (WiFi.status() == WL_CONNECTED) {
+    statusServer.handleClient();
   }
 }
 
@@ -295,6 +377,7 @@ void sendWakeOnLan() {
   udp.endPacket();
   udp.stop();
 
+  wakePacketsSent++;
   Serial.println("Wake-on-LAN packet sent.");
 }
 
@@ -319,6 +402,8 @@ void sendSleepRequest() {
   http.begin(PC_SLEEP_URL);
   http.addHeader("X-Clapper-Token", PC_POWER_TOKEN);
   int status = http.POST("");
+  lastSleepHttpStatus = status;
+  sleepRequestsSent++;
   Serial.print("Sleep request HTTP status: ");
   Serial.println(status);
   if (status < 0) {

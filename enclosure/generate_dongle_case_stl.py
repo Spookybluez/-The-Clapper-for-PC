@@ -124,9 +124,9 @@ def make_bottom():
     return m
 
 
-def lid_plate_with_grille(m: Mesh):
+def lid_plate_with_grille(m: Mesh, z=0):
     length, width = 78, 42
-    z, t = 0, 2
+    t = 2
     # Build plate in strips, leaving five acoustic slots near rear/top mic area.
     slots = [(54, 14 + i * 3.2, 14, 1.4) for i in range(5)]
     y_breaks = sorted({0, width, *[s[1] for s in slots], *[s[1] + s[3] for s in slots]})
@@ -154,14 +154,47 @@ def make_lid():
     return m
 
 
+def make_deep_lid():
+    m = Mesh("esp32_dongle_case_lid_deep")
+    rise = 10
+    wall = 2
+    length, width = 78, 42
+
+    lid_plate_with_grille(m, z=rise)
+
+    # Chunky raised side skirt for extra wire space above the tray.
+    m.box(0, 0, 0, length, wall, rise)
+    m.box(0, width - wall, 0, length, wall, rise)
+    m.box(length - wall, 0, 0, wall, width, rise)
+
+    # USB end keeps the same centered cable opening.
+    m.box(0, 0, 0, wall, 14, rise)
+    m.box(0, 28, 0, wall, 14, rise)
+    m.box(0, 14, 7, wall, 14, rise - 7)
+
+    # Same inner lip as the standard lid, so it drops into the original tray.
+    m.box(3, 3, -3, 72, 2, 3)
+    m.box(3, 37, -3, 72, 2, 3)
+    m.box(74, 3, -3, 2, 36, 3)
+    m.box(3, 3, -3, 2, 10, 3)
+    m.box(3, 29, -3, 2, 10, 3)
+
+    # Raised mic label pad/guard around the grille.
+    m.box(52, 11, rise + 2, 18, 20, 0.8)
+    return m
+
+
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     bottom = make_bottom()
     lid = make_lid()
+    deep_lid = make_deep_lid()
     bottom.write(OUT / "esp32_dongle_case_bottom.stl")
     lid.write(OUT / "esp32_dongle_case_lid.stl")
+    deep_lid.write(OUT / "esp32_dongle_case_lid_deep.stl")
     print(OUT / "esp32_dongle_case_bottom.stl")
     print(OUT / "esp32_dongle_case_lid.stl")
+    print(OUT / "esp32_dongle_case_lid_deep.stl")
 
 
 if __name__ == "__main__":
