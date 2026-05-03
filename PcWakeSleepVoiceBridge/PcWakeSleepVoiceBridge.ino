@@ -26,6 +26,7 @@ const int STATUS_SERVER_PORT = 8080;
 
 const i2s_port_t I2S_PORT = I2S_NUM_0;
 WebServer statusServer(STATUS_SERVER_PORT);
+const char* STATUS_SERVER_HEADERS[] = {"X-Clapper-Token"};
 
 const int I2S_SCK_PIN = 26;
 const int I2S_WS_PIN = 25;
@@ -40,7 +41,7 @@ const unsigned long CLAP_LOCKOUT_MS = 1200;
 const unsigned long PRINT_INTERVAL_MS = 2000;
 
 const int CLAP_THRESHOLD = 1800;
-const bool VERBOSE_AUDIO_LOGS = false;
+const bool DEFAULT_VERBOSE_AUDIO_LOGS = false;
 
 struct AudioStats {
   int peak;
@@ -50,6 +51,7 @@ struct AudioStats {
 int32_t samples[BUFFER_SAMPLES];
 int clapThreshold = CLAP_THRESHOLD;
 int noiseFloor = 0;
+bool verboseAudioLogs = DEFAULT_VERBOSE_AUDIO_LOGS;
 bool pcWantedAwake = false;
 unsigned long lastClapAt = 0;
 unsigned long lastPrintAt = 0;
@@ -66,6 +68,13 @@ String lastAction = "boot";
 void connectWiFi();
 void setupStatusServer();
 void handleStatusServer();
+bool isAuthorized();
+String healthJson();
+void sendJson(int status, const String& body);
+void handleConfig();
+void handleCalibrate();
+void handleWakeTest();
+void handleResetCounters();
 void setupI2SMic();
 AudioStats readI2SStats();
 void calibrateNoiseFloor();
@@ -140,7 +149,7 @@ void loop() {
     }
   }
 
-  if (VERBOSE_AUDIO_LOGS && now - lastPrintAt >= PRINT_INTERVAL_MS) {
+  if (verboseAudioLogs && now - lastPrintAt >= PRINT_INTERVAL_MS) {
     lastPrintAt = now;
     printStatus(audio);
   }
@@ -191,6 +200,8 @@ void handleSerialCommand() {
     Serial.print(lastPeak);
     Serial.print(" threshold=");
     Serial.print(clapThreshold);
+    Serial.print(" verbose=");
+    Serial.print(verboseAudioLogs ? "ON" : "OFF");
     Serial.print(" desired=");
     Serial.print(pcWantedAwake ? "AWAKE" : "SLEEP");
     Serial.print(" wakePackets=");
@@ -201,6 +212,24 @@ void handleSerialCommand() {
     Serial.print(lastSleepHttpStatus);
     Serial.print(" lastAction=");
     Serial.println(lastAction);
+  } else if (command.startsWith("THRESHOLD_")) {
+    int threshold = command.substring(10).toInt();
+    if (threshold >= 1 && threshold <= 20000) {
+      clapThreshold = threshold;
+      Serial.print("Serial command -> threshold set to ");
+      Serial.println(clapThreshold);
+    } else {
+      Serial.println("Threshold must be between 1 and 20000.");
+    }
+  } else if (command == "VERBOSE_ON") {
+    verboseAudioLogs = true;
+    Serial.println("Serial command -> verbose audio logs ON");
+  } else if (command == "VERBOSE_OFF") {
+    verboseAudioLogs = false;
+    Serial.println("Serial command -> verbose audio logs OFF");
+  } else if (command == "CALIBRATE") {
+    Serial.println("Serial command -> CALIBRATE");
+    calibrateNoiseFloor();
   } else if (command.length() > 0) {
     Serial.print("Unknown serial command: ");
     Serial.println(command);
@@ -213,24 +242,17 @@ void setupStatusServer() {
     return;
   }
 
+  statusServer.collectHeaders(STATUS_SERVER_HEADERS, 1);
   statusServer.on("/health", HTTP_GET, []() {
-    String body = "{";
-    body += "\"ok\":true";
-    body += ",\"ip\":\"" + WiFi.localIP().toString() + "\"";
-    body += ",\"rssi\":" + String(WiFi.RSSI());
-    body += ",\"uptimeMs\":" + String(millis());
-    body += ",\"noiseFloor\":" + String(noiseFloor);
-    body += ",\"threshold\":" + String(clapThreshold);
-    body += ",\"lastAverage\":" + String(lastAverage);
-    body += ",\"lastPeak\":" + String(lastPeak);
-    body += ",\"desired\":\"" + String(pcWantedAwake ? "AWAKE" : "SLEEP") + "\"";
-    body += ",\"wakePacketsSent\":" + String(wakePacketsSent);
-    body += ",\"sleepRequestsSent\":" + String(sleepRequestsSent);
-    body += ",\"lastSleepHttpStatus\":" + String(lastSleepHttpStatus);
-    body += ",\"lastAction\":\"" + lastAction + "\"";
-    body += "}";
-    statusServer.send(200, "application/json", body);
+    sendJson(200, healthJson());
   });
+  statusServer.on("/status", HTTP_GET, []() {
+    sendJson(200, healthJson());
+  });
+  statusServer.on("/config", HTTP_POST, handleConfig);
+  statusServer.on("/calibrate", HTTP_POST, handleCalibrate);
+  statusServer.on("/wake_test", HTTP_POST, handleWakeTest);
+  statusServer.on("/reset_counters", HTTP_POST, handleResetCounters);
 
   statusServer.onNotFound([]() {
     statusServer.send(404, "application/json", "{\"ok\":false,\"error\":\"not found\"}");
@@ -241,6 +263,100 @@ void setupStatusServer() {
   Serial.print(WiFi.localIP());
   Serial.print(":");
   Serial.println(STATUS_SERVER_PORT);
+}
+
+bool isAuthorized() {
+  if (String(PC_POWER_TOKEN).length() == 0) {
+    return true;
+  }
+  if (statusServer.header("X-Clapper-Token") == PC_POWER_TOKEN) {
+    return true;
+  }
+  return statusServer.hasArg("token") && statusServer.arg("token") == PC_POWER_TOKEN;
+}
+
+String healthJson() {
+  String body = "{";
+  body += "\"ok\":true";
+  body += ",\"ip\":\"" + WiFi.localIP().toString() + "\"";
+  body += ",\"rssi\":" + String(WiFi.RSSI());
+  body += ",\"uptimeMs\":" + String(millis());
+  body += ",\"noiseFloor\":" + String(noiseFloor);
+  body += ",\"threshold\":" + String(clapThreshold);
+  body += ",\"verboseAudioLogs\":" + String(verboseAudioLogs ? "true" : "false");
+  body += ",\"lastAverage\":" + String(lastAverage);
+  body += ",\"lastPeak\":" + String(lastPeak);
+  body += ",\"desired\":\"" + String(pcWantedAwake ? "AWAKE" : "SLEEP") + "\"";
+  body += ",\"wakePacketsSent\":" + String(wakePacketsSent);
+  body += ",\"sleepRequestsSent\":" + String(sleepRequestsSent);
+  body += ",\"lastSleepHttpStatus\":" + String(lastSleepHttpStatus);
+  body += ",\"lastAction\":\"" + lastAction + "\"";
+  body += "}";
+  return body;
+}
+
+void sendJson(int status, const String& body) {
+  statusServer.send(status, "application/json", body);
+}
+
+void handleConfig() {
+  if (!isAuthorized()) {
+    sendJson(401, "{\"ok\":false,\"error\":\"unauthorized\"}");
+    return;
+  }
+
+  if (statusServer.hasArg("threshold")) {
+    int threshold = statusServer.arg("threshold").toInt();
+    if (threshold < 1 || threshold > 20000) {
+      sendJson(400, "{\"ok\":false,\"error\":\"threshold must be 1..20000\"}");
+      return;
+    }
+    clapThreshold = threshold;
+  }
+
+  if (statusServer.hasArg("verbose")) {
+    String value = statusServer.arg("verbose");
+    value.toLowerCase();
+    verboseAudioLogs = value == "1" || value == "true" || value == "on" || value == "yes";
+  }
+
+  lastAction = "remote_config";
+  sendJson(200, healthJson());
+}
+
+void handleCalibrate() {
+  if (!isAuthorized()) {
+    sendJson(401, "{\"ok\":false,\"error\":\"unauthorized\"}");
+    return;
+  }
+
+  lastAction = "remote_calibrate";
+  calibrateNoiseFloor();
+  sendJson(200, healthJson());
+}
+
+void handleWakeTest() {
+  if (!isAuthorized()) {
+    sendJson(401, "{\"ok\":false,\"error\":\"unauthorized\"}");
+    return;
+  }
+
+  lastAction = "remote_wake_test";
+  sendWakeOnLan();
+  sendJson(200, healthJson());
+}
+
+void handleResetCounters() {
+  if (!isAuthorized()) {
+    sendJson(401, "{\"ok\":false,\"error\":\"unauthorized\"}");
+    return;
+  }
+
+  wakePacketsSent = 0;
+  sleepRequestsSent = 0;
+  lastSleepHttpStatus = 0;
+  lastAction = "remote_reset_counters";
+  sendJson(200, healthJson());
 }
 
 void handleStatusServer() {

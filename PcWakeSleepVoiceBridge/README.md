@@ -75,6 +75,10 @@ Open Serial Monitor at `115200` baud and send one of:
 
 ```text
 STATUS
+THRESHOLD_1800
+VERBOSE_ON
+VERBOSE_OFF
+CALIBRATE
 WAKE_TEST
 SLEEP_TEST
 WAKE_IN_30
@@ -82,6 +86,9 @@ WAKE_SPAM_120
 ```
 
 - `STATUS` prints Wi-Fi, mic, threshold, and action counters.
+- `THRESHOLD_1800` changes the clap threshold. Replace `1800` with the target value.
+- `VERBOSE_ON` / `VERBOSE_OFF` toggles periodic audio telemetry.
+- `CALIBRATE` reruns the room-noise calibration.
 - `WAKE_TEST` sends one Wake-on-LAN packet.
 - `SLEEP_TEST` calls the PC listener `/sleep` endpoint.
 - `WAKE_IN_30` sends Wake-on-LAN after 30 seconds.
@@ -98,6 +105,32 @@ http://192.168.1.184:8080/health
 ```
 
 The response includes Wi-Fi RSSI, uptime, mic readings, threshold, desired state, wake packet count, sleep request count, and the last sleep HTTP status. This endpoint does not trigger wake, sleep, or shutdown.
+
+Remote tuning endpoints are available on the same port. These require the shared `X-Clapper-Token` header:
+
+```powershell
+$token = (Get-Content -Raw .\pc_listener_token.txt).Trim()
+$headers = @{ "X-Clapper-Token" = $token }
+
+Invoke-WebRequest -Method POST -UseBasicParsing -Headers $headers `
+  -Uri "http://192.168.1.184:8080/config?threshold=1800&verbose=false"
+
+Invoke-WebRequest -Method POST -UseBasicParsing -Headers $headers `
+  -Uri "http://192.168.1.184:8080/calibrate"
+
+Invoke-WebRequest -Method POST -UseBasicParsing -Headers $headers `
+  -Uri "http://192.168.1.184:8080/wake_test"
+
+Invoke-WebRequest -Method POST -UseBasicParsing -Headers $headers `
+  -Uri "http://192.168.1.184:8080/reset_counters"
+```
+
+- `/config` can set `threshold` from `1` to `20000` and `verbose` to `true` or `false`.
+- `/calibrate` reruns the mic room-noise calibration.
+- `/wake_test` sends a Wake-on-LAN packet and increments `wakePacketsSent`.
+- `/reset_counters` clears wake/sleep counters and the last sleep HTTP status.
+
+There is intentionally no remote ESP endpoint for sleep. Sleep still only happens from the clap flow or the serial `SLEEP_TEST` command, which prevents accidental PC sleep while tuning over LAN.
 
 ## Voice Recognition
 
