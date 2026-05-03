@@ -24,6 +24,7 @@ Then edit `arduino_secrets.h`:
 ```cpp
 const char* WIFI_SSID = "YOUR_WIFI_NAME";
 const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
+const char* PC_POWER_TOKEN = "MATCH_THE_TOKEN_IN_pc_listener_token.txt";
 ```
 
 The PC target is currently configured in `PcWakeSleepVoiceBridge.ino`:
@@ -46,16 +47,24 @@ The I2S mic wiring stays:
 
 ## Windows Listener
 
+Create a local listener token file on the PC:
+
+```powershell
+[guid]::NewGuid().ToString('N') | Set-Content .\pc_listener_token.txt
+```
+
+Use the same token value for `PC_POWER_TOKEN` in `arduino_secrets.h`. The ESP32 sends it in the `X-Clapper-Token` header, and the listener rejects power commands without it.
+
 Dry-run test:
 
 ```powershell
-python .\pc_power_listener.py --dry-run
+python .\pc_power_listener.py --dry-run --token (Get-Content .\pc_listener_token.txt)
 ```
 
 Real sleep mode:
 
 ```powershell
-python .\pc_power_listener.py
+python .\pc_power_listener.py --token (Get-Content .\pc_listener_token.txt)
 ```
 
 Dry-run is strongly recommended first. Without `--dry-run`, `POST /sleep` will put the PC to sleep.

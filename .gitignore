@@ -1,8 +1,10 @@
 .superpowers/
 drivers/
 PcWakeSleepVoiceBridge/arduino_secrets.h
+PcWakeSleepVoiceBridge/pc_listener_token.txt
 PcWakeSleepVoiceBridge/*.log
 PcWakeSleepVoiceBridge/*.pid
+PcWakeSleepVoiceBridge/logs/
 __pycache__/
 */__pycache__/
 *.pyc

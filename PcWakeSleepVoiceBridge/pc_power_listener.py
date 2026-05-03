@@ -18,12 +18,14 @@ from __future__ import annotations
 import argparse
 import ctypes
 import json
+import os
 import subprocess
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
 class PowerHandler(BaseHTTPRequestHandler):
     dry_run = True
+    token = ""
 
     def log_message(self, format: str, *args: object) -> None:
         print("%s - %s" % (self.address_string(), format % args))
@@ -36,12 +38,21 @@ class PowerHandler(BaseHTTPRequestHandler):
         self.send_json(200, {"ok": True, "dry_run": self.dry_run})
 
     def do_POST(self) -> None:
+        if not self.is_authorized():
+            self.send_json(401, {"ok": False, "error": "unauthorized"})
+            return
+
         if self.path == "/sleep":
             self.handle_sleep()
         elif self.path == "/shutdown":
             self.handle_shutdown()
         else:
             self.send_json(404, {"ok": False, "error": "not found"})
+
+    def is_authorized(self) -> bool:
+        if not self.token:
+            return True
+        return self.headers.get("X-Clapper-Token", "") == self.token
 
     def handle_sleep(self) -> None:
         print("Received sleep request")
@@ -69,12 +80,15 @@ def main() -> None:
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8787)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--token", default=os.environ.get("CLAPPER_TOKEN", ""))
     args = parser.parse_args()
 
     PowerHandler.dry_run = args.dry_run
+    PowerHandler.token = args.token
     server = ThreadingHTTPServer((args.host, args.port), PowerHandler)
     print(f"Listening on http://{args.host}:{args.port}")
     print(f"dry_run={args.dry_run}")
+    print(f"token_required={bool(args.token)}")
     server.serve_forever()
 
 

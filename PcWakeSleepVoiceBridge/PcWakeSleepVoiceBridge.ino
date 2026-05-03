@@ -317,6 +317,7 @@ void sendSleepRequest() {
 
   HTTPClient http;
   http.begin(PC_SLEEP_URL);
+  http.addHeader("X-Clapper-Token", PC_POWER_TOKEN);
   int status = http.POST("");
   Serial.print("Sleep request HTTP status: ");
   Serial.println(status);
