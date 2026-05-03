@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Component Photo Capture</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #f7f7f2;
+      color: #202420;
+    }
+    main {
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 24px 16px 42px;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 32px;
+    }
+    p {
+      color: #4e5850;
+      line-height: 1.45;
+    }
+    video, canvas, img {
+      width: 100%;
+      max-height: 62vh;
+      object-fit: contain;
+      background: #111;
+      border: 1px solid #cfcfc6;
+      border-radius: 8px;
+      margin-top: 12px;
+    }
+    canvas {
+      display: none;
+    }
+    img {
+      display: none;
+    }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 14px;
+    }
+    button, a.button {
+      min-height: 44px;
+      padding: 0 16px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid #202420;
+      border-radius: 8px;
+      background: #202420;
+      color: white;
+      font-weight: 700;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    a.button {
+      background: white;
+      color: #202420;
+    }
+    button:disabled, a.disabled {
+      opacity: .45;
+      pointer-events: none;
+    }
+    #status {
+      margin-top: 12px;
+      padding: 12px;
+      background: white;
+      border: 1px solid #cfcfc6;
+      border-radius: 8px;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Component Photo Capture</h1>
+    <p>Open this file in Chrome or Edge, allow the camera, capture a clear photo, then download it and attach the JPG in Codex.</p>
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="canvas"></canvas>
+    <img id="preview" alt="Captured component photo">
+    <div class="controls">
+      <button id="start">Start Camera</button>
+      <button id="capture" disabled>Capture Photo</button>
+      <a id="download" class="button disabled" download="wake-word-components.jpg">Download JPG</a>
+    </div>
+    <div id="status">Waiting for camera.</div>
+  </main>
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const preview = document.getElementById('preview');
+    const statusEl = document.getElementById('status');
+    const startBtn = document.getElementById('start');
+    const captureBtn = document.getElementById('capture');
+    const download = document.getElementById('download');
+
+    function status(text) {
+      statusEl.textContent = text;
+    }
+
+    startBtn.onclick = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 1920 }, height: { ideal: 1080 } },
+          audio: false
+        });
+        video.srcObject = stream;
+        captureBtn.disabled = false;
+        status('Camera is live. Frame the components and press Capture Photo.');
+      } catch (error) {
+        status('Camera error: ' + error.name + ' - ' + error.message);
+      }
+    };
+
+    captureBtn.onclick = () => {
+      const width = video.videoWidth || 1280;
+      const height = video.videoHeight || 720;
+      canvas.width = width;
+      canvas.height = height;
+      canvas.getContext('2d').drawImage(video, 0, 0, width, height);
+      canvas.toBlob((blob) => {
+        const url = URL.createObjectURL(blob);
+        preview.src = url;
+        preview.style.display = 'block';
+        download.href = url;
+        download.classList.remove('disabled');
+        status('Photo captured. Click Download JPG, then attach wake-word-components.jpg in Codex.');
+      }, 'image/jpeg', 0.9);
+    };
+  </script>
+</body>
+</html>

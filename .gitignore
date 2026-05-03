@@ -1,0 +1,9 @@
+.superpowers/
+drivers/
+PcWakeSleepVoiceBridge/arduino_secrets.h
+PcWakeSleepVoiceBridge/*.log
+PcWakeSleepVoiceBridge/*.pid
+__pycache__/
+*/__pycache__/
+*.pyc
+enclosure/esp32_dongle_case_stls/
